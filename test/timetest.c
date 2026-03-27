@@ -19,6 +19,7 @@
  */
 
 #define _GNU_SOURCE
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -55,6 +56,69 @@ static int fake_monotonic_clock = 0;
 #else
 static int fake_monotonic_clock = 1;
 #endif
+
+static void test_utimens_now(void)
+{
+  char path[] = "/tmp/libfaketime-utimensat-XXXXXX";
+  struct timespec now_times[2];
+  int fd;
+
+  fd = mkstemp(path);
+  if (fd == -1)
+  {
+    perror("mkstemp");
+    exit(EXIT_FAILURE);
+  }
+
+  if (utimensat(AT_FDCWD, path, NULL, 0) == -1)
+  {
+    perror("utimensat(NULL)");
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (futimens(fd, NULL) == -1)
+  {
+    perror("futimens(NULL)");
+    close(fd);
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  now_times[0].tv_sec = now_times[1].tv_sec = 0;
+  now_times[0].tv_nsec = now_times[1].tv_nsec = UTIME_NOW;
+
+  if (utimensat(AT_FDCWD, path, now_times, 0) == -1)
+  {
+    perror("utimensat(UTIME_NOW)");
+    close(fd);
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (futimens(fd, now_times) == -1)
+  {
+    perror("futimens(UTIME_NOW)");
+    close(fd);
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (close(fd) == -1)
+  {
+    perror("close");
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (unlink(path) == -1)
+  {
+    perror("unlink");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("utimensat()/futimens(): NOW handling passed\n");
+}
 
 static void
 handler(int sig, siginfo_t *si, void *uc)
@@ -305,6 +369,7 @@ printf("%s", 0 == 1 ? argv[0] : "");
     printf("gettimeofday() : Current date and time: %s", ctime(&tv.tv_sec));
 
 #ifndef __APPLE__
+    test_utimens_now();
     if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
     {
       perror("sigprocmask");
