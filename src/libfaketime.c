@@ -1351,9 +1351,22 @@ int utimes(const char *filename, const struct timeval times[2])
   return result;
 }
 
+static int fake_current_realtime(struct timespec *tp)
+{
+  int result;
+
+  DONT_FAKE_TIME(result = (*real_clock_gettime)(CLOCK_REALTIME, tp));
+  if (result == -1)
+  {
+    return -1;
+  }
+
+  return fake_clock_gettime(CLOCK_REALTIME, tp);
+}
+
 /* This conditionally offsets 2 timespec values. The caller's out_times array
  * always contains valid translated values, even if in_times was NULL. */
-static void fake_two_timespec(const struct timespec in_times[2], struct timespec out_times[2])
+static int fake_two_timespec(const struct timespec in_times[2], struct timespec out_times[2])
 {
   if (in_times == NULL) /* Translate NULL into 2 UTIME_NOW values */
   {
@@ -1362,7 +1375,7 @@ static void fake_two_timespec(const struct timespec in_times[2], struct timespec
     in_times = out_times;
   }
   struct timespec now;
-  now.tv_nsec = UTIME_OMIT; /* Wait to grab the current time to see if it's actually needed */
+  int have_fake_now = 0;
   int j;
   for (j = 0; j <= 1; j++)
   {
@@ -1371,11 +1384,15 @@ static void fake_two_timespec(const struct timespec in_times[2], struct timespec
     {
       if (fake_utime_disabled && in_times[j].tv_nsec == UTIME_NOW)
       { /* The user wants their given fake times left alone but they requested NOW, so turn it into fake NOW */
-        if (now.tv_nsec == UTIME_OMIT) /* did we grab "now" yet? */
+        if (!have_fake_now)
         {
-          DONT_FAKE_TIME(real_clock_gettime(CLOCK_REALTIME, &now));
+          if (fake_current_realtime(&now) == -1)
+          {
+            return -1;
+          }
+          have_fake_now = 1;
         }
-        timeradd2(&now, &user_offset, &out_times[j], n);
+        out_times[j] = now;
       }
       else if (out_times != in_times)
       { /* Just preserve the input value */
@@ -1387,6 +1404,7 @@ static void fake_two_timespec(const struct timespec in_times[2], struct timespec
       timersub2(&in_times[j], &user_offset, &out_times[j], n);
     }
   }
+  return 0;
 }
 
 #ifdef MACOS_DYLD_INTERPOSE
@@ -1400,7 +1418,10 @@ int utimensat(int dirfd, const char *filename, const struct timespec times[2], i
 
   int result;
   struct timespec tn[2];
-  fake_two_timespec(times, tn);
+  if (fake_two_timespec(times, tn) == -1)
+  {
+    return -1;
+  }
 #ifdef MACOS_DYLD_INTERPOSE
   DONT_FAKE_TIME(result = utimensat(dirfd, filename, tn, flags));
 #else
@@ -1420,7 +1441,10 @@ int futimens(int fd, const struct timespec times[2])
 
   int result;
   struct timespec tn[2];
-  fake_two_timespec(times, tn);
+  if (fake_two_timespec(times, tn) == -1)
+  {
+    return -1;
+  }
 #ifdef MACOS_DYLD_INTERPOSE
   DONT_FAKE_TIME(result = futimens(fd, tn));
 #else
