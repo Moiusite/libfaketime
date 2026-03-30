@@ -41,6 +41,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
+#include <utime.h>
 
 #define MONO_FIX_TIMEOUT_SECONDS     1
 #define MONO_FIX_TOLERANCE_SECONDS   0.25 // Increased tolerance slightly for CI environments
@@ -56,6 +57,50 @@ static int fake_monotonic_clock = 0;
 #else
 static int fake_monotonic_clock = 1;
 #endif
+
+static void test_utime_now(void)
+{
+  char path[] = "/tmp/libfaketime-utime-XXXXXX";
+  int fd;
+
+  fd = mkstemp(path);
+  if (fd == -1)
+  {
+    perror("mkstemp");
+    exit(EXIT_FAILURE);
+  }
+
+  if (utime(path, NULL) == -1)
+  {
+    perror("utime(NULL)");
+    close(fd);
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (utimes(path, NULL) == -1)
+  {
+    perror("utimes(NULL)");
+    close(fd);
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (close(fd) == -1)
+  {
+    perror("close");
+    unlink(path);
+    exit(EXIT_FAILURE);
+  }
+
+  if (unlink(path) == -1)
+  {
+    perror("unlink");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("utime()/utimes(): NOW handling passed\n");
+}
 
 static void test_utimens_now(void)
 {
@@ -369,6 +414,7 @@ printf("%s", 0 == 1 ? argv[0] : "");
     printf("gettimeofday() : Current date and time: %s", ctime(&tv.tv_sec));
 
 #ifndef __APPLE__
+    test_utime_now();
     test_utimens_now();
     if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
     {
