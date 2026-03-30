@@ -333,6 +333,8 @@ static pthread_once_t initialized_once_control = PTHREAD_ONCE_INIT;
 /* prototypes */
 static int    fake_gettimeofday(struct timeval *tv);
 static int    fake_clock_gettime(clockid_t clk_id, struct timespec *tp);
+static int    fake_current_realtime(struct timespec *tp);
+static int    fake_current_timeval(struct timeval *tv);
 int           read_config_file();
 bool          str_array_contains(const char *haystack, const char *needle);
 void *ft_dlvsym(void *handle, const char *symbol, const char *version, const char *full_name, char *ignore_list, bool should_debug_dlsym);
@@ -1296,7 +1298,12 @@ int utime(const char *filename, const struct utimbuf *times)
   {
     if (times == NULL)
     { /* The user wants their given fake times left alone but they requested NOW, so turn it into fake NOW */
-      ntbuf.actime = ntbuf.modtime = time(NULL);
+      struct timespec now;
+      if (fake_current_realtime(&now) == -1)
+      {
+        return -1;
+      }
+      ntbuf.actime = ntbuf.modtime = now.tv_sec;
       times = &ntbuf;
     }
   }
@@ -1329,7 +1336,10 @@ int utimes(const char *filename, const struct timeval times[2])
   {
     if (times == NULL)
     { /* The user wants their given fake times left alone but they requested NOW, so turn it into fake NOW */
-      fake_gettimeofday(&tn[0]);
+      if (fake_current_timeval(&tn[0]) == -1)
+      {
+        return -1;
+      }
       tn[1] = tn[0];
       times = tn;
     }
@@ -1362,6 +1372,22 @@ static int fake_current_realtime(struct timespec *tp)
   }
 
   return fake_clock_gettime(CLOCK_REALTIME, tp);
+}
+
+static int fake_current_timeval(struct timeval *tv)
+{
+  struct timespec ts;
+  int result;
+
+  result = fake_current_realtime(&ts);
+  if (result == -1)
+  {
+    return -1;
+  }
+
+  tv->tv_sec = ts.tv_sec;
+  tv->tv_usec = ts.tv_nsec / 1000;
+  return 0;
 }
 
 /* This conditionally offsets 2 timespec values. The caller's out_times array
