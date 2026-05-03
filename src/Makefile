@@ -126,6 +126,14 @@ PREFIX ?= /usr/local
 LIBDIRNAME ?= /lib/faketime
 PLATFORM ?=$(shell uname)
 
+ifneq ($(filter android%,$(subst -, ,$(CC))),)
+IS_ANDROID := true
+endif
+
+ifeq ($(shell $(CC) -dM -E - < /dev/null | grep -c "__ANDROID__"),1)
+IS_ANDROID := true
+endif
+
 ifeq ($(shell $(CC) -v 2>&1 | grep -c "clang version"), 1)
 COMPILER := clang
 else
@@ -147,15 +155,26 @@ ifeq ($(PLATFORM),SunOS)
 CFLAGS += -D__EXTENSIONS__ -D_XOPEN_SOURCE=600
 endif
 
+ifdef IS_ANDROID
+CFLAGS += -D__ANDROID__
+endif
+
 LIB_LDFLAGS += -shared
 
 LDFLAGS += $(FAKETIME_LINK_FLAGS)
 ifneq ($(PLATFORM),SunOS)
+ifndef IS_ANDROID
 LDFLAGS += -Wl,--version-script=libfaketime.map
 endif
+endif
 
+ifdef IS_ANDROID
+LDADD += -ldl -lm
+BIN_LDFLAGS +=
+else
 LDADD += -ldl -lm -lrt -lpthread
 BIN_LDFLAGS += -lrt -lpthread
+endif
 
 SRC = libfaketime.c
 LIBS_OBJ = libfaketime.o libfaketimeMT.o
